@@ -155,20 +155,21 @@ function registerSendRequestCodeLens(monaco: typeof Monaco) {
         }
 
         if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+/i.test(line)) {
-          const targetLine = pendingHeaderLine ?? lineNumber;
-          lenses.push({
-            range: {
-              startLineNumber: targetLine,
-              startColumn: 1,
-              endLineNumber: targetLine,
-              endColumn: 1
-            },
-            command: {
-              id: codeLensCommandId,
-              title: "Send Request",
-              arguments: [requestIndex]
-            }
-          });
+          if (pendingHeaderLine !== null) {
+            lenses.push({
+              range: {
+                startLineNumber: pendingHeaderLine,
+                startColumn: 1,
+                endLineNumber: pendingHeaderLine,
+                endColumn: 1
+              },
+              command: {
+                id: codeLensCommandId,
+                title: "Send Request",
+                arguments: [requestIndex]
+              }
+            });
+          }
 
           requestIndex += 1;
           pendingHeaderLine = null;
