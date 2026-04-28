@@ -54,4 +54,3 @@ pub struct WorkspaceData {
     pub root_path: String,
     pub nodes: Vec<FsNode>,
 }
-

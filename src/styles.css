@@ -121,7 +121,7 @@ select {
 .workspaceSidebar {
   min-height: 0;
   display: grid;
-  grid-template-rows: 46px 24px minmax(0, 1fr);
+  grid-template-rows: 34px 30px 24px minmax(0, 1fr);
   gap: 8px;
   padding: 10px;
   background: #181b21;
@@ -161,6 +161,10 @@ body.isResizing .paneResizer {
 .sidebarActions {
   display: flex;
   gap: 6px;
+}
+
+.secondaryActions {
+  justify-content: flex-start;
 }
 
 .sidebarActions button {

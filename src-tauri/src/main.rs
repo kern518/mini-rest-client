@@ -53,7 +53,11 @@ fn read_workspace_folder(root_path: String) -> Result<WorkspaceData, String> {
 }
 
 #[tauri::command]
-fn create_workspace_folder(root_path: String, parent_path: String, name: String) -> Result<WorkspaceData, String> {
+fn create_workspace_folder(
+    root_path: String,
+    parent_path: String,
+    name: String,
+) -> Result<WorkspaceData, String> {
     validate_name(&name)?;
     let root = canonical_dir(&root_path)?;
     let parent = canonical_dir(&parent_path)?;
@@ -85,7 +89,43 @@ fn create_workspace_file(
 }
 
 #[tauri::command]
-fn write_workspace_file(root_path: String, file_path: String, content: String) -> Result<(), String> {
+fn rename_workspace_item(
+    root_path: String,
+    item_path: String,
+    new_name: String,
+) -> Result<WorkspaceData, String> {
+    validate_name(&new_name)?;
+    let root = canonical_dir(&root_path)?;
+    let item = PathBuf::from(item_path)
+        .canonicalize()
+        .map_err(|err| err.to_string())?;
+    ensure_inside_root(&root, &item)?;
+
+    if item == root {
+        return Err("The workspace root folder cannot be renamed here.".to_string());
+    }
+
+    let parent = item
+        .parent()
+        .ok_or_else(|| "Invalid item path.".to_string())?
+        .to_path_buf();
+    ensure_inside_root(&root, &parent)?;
+
+    let target = parent.join(new_name);
+    if target.exists() {
+        return Err("An item with that name already exists.".to_string());
+    }
+
+    std::fs::rename(item, target).map_err(|err| err.to_string())?;
+    read_workspace(root)
+}
+
+#[tauri::command]
+fn write_workspace_file(
+    root_path: String,
+    file_path: String,
+    content: String,
+) -> Result<(), String> {
     let root = canonical_dir(&root_path)?;
     let path = PathBuf::from(file_path);
     let parent = path
@@ -150,10 +190,10 @@ fn node_name(node: &FsNode) -> &str {
 }
 
 fn is_http_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("http") | Some("rest")
-    )
+    let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+        return false;
+    };
+    extension.eq_ignore_ascii_case("http") || extension.eq_ignore_ascii_case("rest")
 }
 
 fn canonical_dir(path: impl AsRef<Path>) -> Result<PathBuf, String> {
@@ -187,7 +227,10 @@ fn validate_name(name: &str) -> Result<(), String> {
 }
 
 fn display_path(path: &Path) -> String {
-    path.display().to_string().trim_start_matches(r"\\?\").to_string()
+    path.display()
+        .to_string()
+        .trim_start_matches(r"\\?\")
+        .to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -200,6 +243,7 @@ pub fn run() {
             read_workspace_folder,
             create_workspace_folder,
             create_workspace_file,
+            rename_workspace_item,
             write_workspace_file
         ])
         .run(tauri::generate_context!())

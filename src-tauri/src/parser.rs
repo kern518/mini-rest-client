@@ -15,7 +15,9 @@ pub fn parse_http_file(source: &str) -> Result<HttpFile> {
     }
 
     if requests.is_empty() {
-        return Err(anyhow!("No HTTP request found. Add a line like: GET https://example.com"));
+        return Err(anyhow!(
+            "No HTTP request found. Add a line like: GET https://example.com"
+        ));
     }
 
     Ok(HttpFile { requests })
@@ -61,7 +63,10 @@ fn split_request_blocks(source: &str) -> Vec<String> {
     blocks
 }
 
-fn parse_request_block(block: &str, variables: &HashMap<String, String>) -> Result<Option<RequestCase>> {
+fn parse_request_block(
+    block: &str,
+    variables: &HashMap<String, String>,
+) -> Result<Option<RequestCase>> {
     let mut name = String::new();
     let lines: Vec<&str> = block.lines().collect();
     let mut request_line_index = None;
@@ -69,7 +74,11 @@ fn parse_request_block(block: &str, variables: &HashMap<String, String>) -> Resu
     for (index, raw_line) in lines.iter().enumerate() {
         let line = raw_line.trim();
 
-        if line.is_empty() || line.starts_with('@') || line.starts_with('#') && !line.starts_with("###") || line.starts_with("//") {
+        if line.is_empty()
+            || line.starts_with('@')
+            || line.starts_with('#') && !line.starts_with("###")
+            || line.starts_with("//")
+        {
             continue;
         }
 
@@ -78,7 +87,11 @@ fn parse_request_block(block: &str, variables: &HashMap<String, String>) -> Resu
             continue;
         }
 
-        let first = line.split_whitespace().next().unwrap_or_default().to_ascii_uppercase();
+        let first = line
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
         if METHODS.contains(&first.as_str()) {
             request_line_index = Some(index);
             break;
@@ -119,12 +132,18 @@ fn parse_request_block(block: &str, variables: &HashMap<String, String>) -> Resu
             continue;
         }
 
-        if line.trim().is_empty() || line.trim_start().starts_with('#') || line.trim_start().starts_with("//") {
+        if line.trim().is_empty()
+            || line.trim_start().starts_with('#')
+            || line.trim_start().starts_with("//")
+        {
             continue;
         }
 
         if let Some((key, value)) = line.split_once(':') {
-            headers.push((key.trim().to_string(), replace_variables(value.trim(), variables)));
+            headers.push((
+                key.trim().to_string(),
+                replace_variables(value.trim(), variables),
+            ));
         }
     }
 
@@ -179,5 +198,64 @@ Content-Type: application/json
         assert_eq!(file.requests[1].method, "POST");
         assert_eq!(file.requests[1].body.as_deref(), Some("{\"name\":\"Ada\"}"));
     }
-}
 
+    #[test]
+    fn parses_single_request_without_separator() {
+        let source = r#"GET https://example.com/health
+Accept: application/json
+"#;
+
+        let file = parse_http_file(source).unwrap();
+        assert_eq!(file.requests.len(), 1);
+        assert_eq!(file.requests[0].method, "GET");
+        assert_eq!(file.requests[0].url, "https://example.com/health");
+        assert_eq!(
+            file.requests[0].headers[0],
+            ("Accept".to_string(), "application/json".to_string())
+        );
+    }
+
+    #[test]
+    fn replaces_variables_in_headers_and_body() {
+        let source = r#"@baseUrl = https://example.com
+@token = abc123
+
+### Create user
+POST {{baseUrl}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "token": "{{token}}"
+}
+"#;
+
+        let file = parse_http_file(source).unwrap();
+        let request = &file.requests[0];
+
+        assert_eq!(request.url, "https://example.com/users");
+        assert_eq!(
+            request.headers[0],
+            ("Authorization".to_string(), "Bearer abc123".to_string())
+        );
+        assert_eq!(
+            request.body.as_deref(),
+            Some("{\n  \"token\": \"abc123\"\n}")
+        );
+    }
+
+    #[test]
+    fn preserves_blank_lines_inside_body() {
+        let source = r#"### Markdown
+POST https://example.com/posts
+Content-Type: text/plain
+
+hello
+
+world
+"#;
+
+        let file = parse_http_file(source).unwrap();
+        assert_eq!(file.requests[0].body.as_deref(), Some("hello\n\nworld"));
+    }
+}
