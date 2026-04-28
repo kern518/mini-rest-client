@@ -4,7 +4,7 @@ pub struct HttpFile {
     pub requests: Vec<RequestCase>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestCase {
     pub name: String,
     pub method: String,
@@ -19,6 +19,8 @@ pub struct RequestSummary {
     pub name: String,
     pub method: String,
     pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,4 +56,3 @@ pub struct WorkspaceData {
     pub root_path: String,
     pub nodes: Vec<FsNode>,
 }
-
