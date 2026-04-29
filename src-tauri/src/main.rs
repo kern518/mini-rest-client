@@ -121,6 +121,41 @@ fn create_workspace_file(
 }
 
 #[tauri::command]
+fn rename_workspace_item(
+    root_path: String,
+    item_path: String,
+    new_name: String,
+) -> Result<WorkspaceData, String> {
+    validate_name(&new_name)?;
+    let root = canonical_dir(&root_path)?;
+    let item = canonical_existing_path(&item_path)?;
+    ensure_inside_root(&root, &item)?;
+    ensure_not_root(&root, &item)?;
+
+    let parent = item
+        .parent()
+        .ok_or_else(|| "Invalid item path.".to_string())?;
+    let target = parent.join(new_name);
+
+    if item.is_file() {
+        if !is_http_file(&item) {
+            return Err("Only .http and .rest files can be renamed.".to_string());
+        }
+
+        if !is_http_file(&target) {
+            return Err("Only .http and .rest files are supported.".to_string());
+        }
+    }
+
+    if target.exists() {
+        return Err("A folder or file with that name already exists.".to_string());
+    }
+
+    std::fs::rename(item, target).map_err(|err| err.to_string())?;
+    read_workspace(root)
+}
+
+#[tauri::command]
 fn rename_workspace_folder(
     root_path: String,
     folder_path: String,
@@ -502,6 +537,7 @@ pub fn run() {
             read_workspace_folder,
             create_workspace_folder,
             create_workspace_file,
+            rename_workspace_item,
             rename_workspace_folder,
             duplicate_workspace_folder,
             delete_workspace_folder,
