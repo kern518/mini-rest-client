@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 type ResponseData = {
   status: number;
@@ -29,8 +31,17 @@ type HistoryEntry = {
   error?: string;
 };
 
+type RequestSnapshot = {
+  name: string;
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body?: string | null;
+};
+
 type ResponsePanelProps = {
   response: ResponseData | null;
+  request: RequestSnapshot | null;
   error: string | null;
   loading: boolean;
   history: HistoryEntry[];
@@ -48,6 +59,7 @@ type ResponsePanelProps = {
 
 export default function ResponsePanel({
   response,
+  request,
   error,
   loading,
   history,
@@ -62,7 +74,8 @@ export default function ResponsePanel({
   onHistoryStatusFilterChange,
   onLocateError
 }: ResponsePanelProps) {
-  const [bodyMode, setBodyMode] = useState<"pretty" | "raw" | "tree">("pretty");
+  const [bodyMode, setBodyMode] = useState<"pretty" | "raw">("pretty");
+  const [collapsedJsonPaths, setCollapsedJsonPaths] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const hasResult = Boolean(response || error);
   const bodyText = response ? (bodyMode === "pretty" ? formatBody(response.body) : response.body) : "";
@@ -73,6 +86,25 @@ export default function ResponsePanel({
   );
   const responseType = response ? detectResponseType(response) : "";
   const responseSize = response ? formatBytes(new Blob([response.body]).size) : "";
+  const parsedJson = useMemo(
+    () => (response && responseType === "json" ? parseJson(response.body) : null),
+    [response, responseType]
+  );
+
+  useEffect(() => {
+    setBodyMode("pretty");
+    setCollapsedJsonPaths(new Set());
+    setQuery("");
+  }, [response]);
+
+  function toggleJsonPath(path: string) {
+    setCollapsedJsonPaths((paths) => {
+      const next = new Set(paths);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
 
   return (
     <aside className="responsePanel">
@@ -107,9 +139,7 @@ export default function ResponsePanel({
           </div>
 
           <div className="responseActions">
-            <button onClick={() => writeClipboardText(response.body)}>Copy Body</button>
-            <button onClick={() => writeClipboardText(formatHeaders(response.headers))}>Copy Headers</button>
-            <button onClick={() => saveTextFile("response.txt", bodyText)}>Save</button>
+            <button onClick={() => saveTextFile("response.txt", response.body)}>Save</button>
             <div className="segmentedControl" aria-label="Body display mode">
               <button className={bodyMode === "pretty" ? "active" : ""} onClick={() => setBodyMode("pretty")}>
                 Pretty
@@ -117,39 +147,78 @@ export default function ResponsePanel({
               <button className={bodyMode === "raw" ? "active" : ""} onClick={() => setBodyMode("raw")}>
                 Raw
               </button>
-              <button className={bodyMode === "tree" ? "active" : ""} onClick={() => setBodyMode("tree")} disabled={responseType !== "json"}>
-                Tree
-              </button>
             </div>
           </div>
 
-          <details className="responseSection collapsedSection">
-            <summary>
-              <span>Headers</span>
-              <span className="muted">{response.headers.length}</span>
-            </summary>
-            <div className="headersList">
-              {response.headers.map(([key, value]) => (
-                <div className="headerLine" key={key}>
-                  <span>{key}</span>
-                  <code>{value}</code>
+          <div className="headersGrid">
+            <details className="responseSection collapsedSection">
+              <summary>
+                <span>Request Headers</span>
+                <span className="muted">{request?.headers.length ?? 0}</span>
+              </summary>
+              {request ? (
+                <div className="headersViewer">
+                  <div className="headerStartLine">
+                    <span>Request</span>
+                    <code>{request.method} {request.url}</code>
+                  </div>
+                  <div className="headersToolbar">
+                    <span>{request.headers.length ? "Configured headers" : "No request headers"}</span>
+                    <button onClick={() => writeClipboardText(formatHeaders(request.headers))} disabled={!request.headers.length}>
+                      Copy
+                    </button>
+                  </div>
+                  {request.headers.length ? (
+                    <pre className="headersRaw">{formatHeaders(request.headers)}</pre>
+                  ) : (
+                    <div className="emptyHeaders">No request headers.</div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </details>
+              ) : (
+                <div className="emptyHeaders">No request metadata recorded.</div>
+              )}
+            </details>
+
+            <details className="responseSection collapsedSection">
+              <summary>
+                <span>Response Headers</span>
+                <span className="muted">{response.headers.length}</span>
+              </summary>
+              <div className="headersViewer">
+                <div className="headerStartLine">
+                  <span>Response</span>
+                  <code>HTTP {response.status} {response.status_text}</code>
+                </div>
+                <div className="headersToolbar">
+                  <span>{response.headers.length ? "Received headers" : "No response headers"}</span>
+                  <button onClick={() => writeClipboardText(formatHeaders(response.headers))} disabled={!response.headers.length}>
+                    Copy
+                  </button>
+                </div>
+                {response.headers.length ? (
+                  <pre className="headersRaw">{formatHeaders(response.headers)}</pre>
+                ) : (
+                  <div className="emptyHeaders">No response headers.</div>
+                )}
+              </div>
+            </details>
+          </div>
 
           <section className="responseSection bodySection">
             <div className="sectionHeader">
               <h2>Body</h2>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search"
-                aria-label="Search response body"
-              />
+              <div className="bodyTools">
+                <button onClick={() => writeClipboardText(response.body)}>Copy</button>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search"
+                  aria-label="Search response body"
+                />
+              </div>
             </div>
-            {bodyMode === "tree" && responseType === "json" ? (
-              <JsonTree value={JSON.parse(response.body)} />
+            {bodyMode === "pretty" && responseType === "json" && !query && parsedJson?.ok ? (
+              <JsonCode value={parsedJson.value} collapsedPaths={collapsedJsonPaths} onToggle={toggleJsonPath} />
             ) : (
               <pre>{limitedText(filteredBody || (query ? "No matches." : bodyText))}</pre>
             )}
@@ -162,53 +231,55 @@ export default function ResponsePanel({
           <span>History</span>
           <span className="muted">{history.length}</span>
         </summary>
-        <div className="historyActions">
-          <input
-            value={historyQuery}
-            onChange={(event) => onHistoryQueryChange(event.target.value)}
-            placeholder="Search history"
-          />
-          <select
-            value={historyStatusFilter}
-            onChange={(event) => onHistoryStatusFilterChange(event.target.value as "all" | "success" | "error")}
-          >
-            <option value="all">All</option>
-            <option value="success">Success</option>
-            <option value="error">Error</option>
-          </select>
-          <button onClick={onClearHistory} disabled={!history.length}>
-            Clear History
-          </button>
-        </div>
-        <div className="historyList">
-          {filteredHistory.map((item) => (
-            <details className="historyItem" key={item.id} title={item.url}>
-              <summary onClick={() => onSelectHistory(item)}>
-                <div>
-                  <span className="historyMethod">{item.method}</span>
-                  <span>{item.name || item.url}</span>
+        <div className="historyBody">
+          <div className="historyActions">
+            <input
+              value={historyQuery}
+              onChange={(event) => onHistoryQueryChange(event.target.value)}
+              placeholder="Search history"
+            />
+            <select
+              value={historyStatusFilter}
+              onChange={(event) => onHistoryStatusFilterChange(event.target.value as "all" | "success" | "error")}
+            >
+              <option value="all">All</option>
+              <option value="success">Success</option>
+              <option value="error">Error</option>
+            </select>
+            <button onClick={onClearHistory} disabled={!history.length}>
+              Clear History
+            </button>
+          </div>
+          <div className="historyList">
+            {filteredHistory.map((item) => (
+              <details className="historyItem" key={item.id} title={item.url}>
+                <summary onClick={() => onSelectHistory(item)}>
+                  <div>
+                    <span className="historyMethod">{item.method}</span>
+                    <span>{item.name || item.url}</span>
+                  </div>
+                  <div className="historyMeta">
+                    <span className={item.error || (item.status ?? 0) >= 400 ? "badText" : "goodText"}>
+                      {item.error ? "ERR" : item.status}
+                    </span>
+                    {item.elapsed_ms !== undefined && <span>{item.elapsed_ms} ms</span>}
+                    {item.environment && <span>{item.environment}</span>}
+                    <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                </summary>
+                <div className="historyDetail">
+                  <code>{item.url}</code>
+                  {item.request?.headers.length ? <pre>{formatHeaders(item.request.headers)}</pre> : null}
+                  {item.request?.body ? <pre>{item.request.body}</pre> : null}
+                  <div className="historyDetailActions">
+                    <button onClick={() => onResendHistory(item)} disabled={!item.request}>Resend</button>
+                    <button onClick={() => onCreateRequestFromHistory(item)} disabled={!item.request}>Create Request</button>
+                  </div>
                 </div>
-                <div className="historyMeta">
-                  <span className={item.error || (item.status ?? 0) >= 400 ? "badText" : "goodText"}>
-                    {item.error ? "ERR" : item.status}
-                  </span>
-                  {item.elapsed_ms !== undefined && <span>{item.elapsed_ms} ms</span>}
-                  {item.environment && <span>{item.environment}</span>}
-                  <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
-                </div>
-              </summary>
-              <div className="historyDetail">
-                <code>{item.url}</code>
-                {item.request?.headers.length ? <pre>{formatHeaders(item.request.headers)}</pre> : null}
-                {item.request?.body ? <pre>{item.request.body}</pre> : null}
-                <div className="historyDetailActions">
-                  <button onClick={() => onResendHistory(item)} disabled={!item.request}>Resend</button>
-                  <button onClick={() => onCreateRequestFromHistory(item)} disabled={!item.request}>Create Request</button>
-                </div>
-              </div>
-            </details>
-          ))}
-          {!filteredHistory.length && <div className="emptyHistory">No requests yet.</div>}
+              </details>
+            ))}
+            {!filteredHistory.length && <div className="emptyHistory">No requests yet.</div>}
+          </div>
         </div>
       </details>
     </aside>
@@ -251,6 +322,14 @@ async function writeClipboardText(text: string) {
   textarea.select();
   document.execCommand("copy");
   textarea.remove();
+}
+
+async function openExternalUrl(url: string) {
+  try {
+    await invoke("open_external_url", { url });
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 function saveTextFile(fileName: string, text: string) {
@@ -297,6 +376,14 @@ function isJson(value: string) {
   }
 }
 
+function parseJson(value: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(value) };
+  } catch {
+    return { ok: false };
+  }
+}
+
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -309,29 +396,197 @@ function limitedText(text: string) {
   return `${text.slice(0, limit)}\n\n[Body truncated at ${formatBytes(limit)} for display]`;
 }
 
-function JsonTree({ value, label }: { value: unknown; label?: string }) {
-  if (value === null || typeof value !== "object") {
-    return (
-      <div className="jsonNode">
-        {label && <span className="jsonKey">{label}: </span>}
-        <code>{JSON.stringify(value)}</code>
-      </div>
-    );
-  }
+type JsonCodeLine = {
+  content: ReactNode;
+  key: string;
+  level: number;
+};
 
-  const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value);
+function JsonCode({
+  value,
+  collapsedPaths,
+  onToggle
+}: {
+  value: unknown;
+  collapsedPaths: Set<string>;
+  onToggle: (path: string) => void;
+}) {
+  const lines = buildJsonCodeLines(value, {
+    collapsedPaths,
+    isLast: true,
+    level: 0,
+    onToggle,
+    path: "$"
+  });
 
   return (
-    <details className="jsonNode" open={!label}>
-      <summary>
-        {label && <span className="jsonKey">{label}: </span>}
-        <span>{Array.isArray(value) ? `Array(${entries.length})` : `Object(${entries.length})`}</span>
-      </summary>
-      <div className="jsonChildren">
-        {entries.map(([key, item]) => (
-          <JsonTree value={item} label={key} key={key} />
-        ))}
-      </div>
-    </details>
+    <pre className="jsonCode">
+      {lines.map((line, index) => (
+        <span className="jsonCodeLine" key={line.key}>
+          <span className="jsonLineNumber">{index + 1}</span>
+          <span className="jsonLineContent" style={{ paddingLeft: line.level * 18 }}>
+            {line.content}
+          </span>
+        </span>
+      ))}
+    </pre>
   );
+}
+
+function buildJsonCodeLines(
+  value: unknown,
+  options: {
+    collapsedPaths: Set<string>;
+    isLast: boolean;
+    label?: string;
+    level: number;
+    onToggle: (path: string) => void;
+    path: string;
+  }
+): JsonCodeLine[] {
+  if (value === null || typeof value !== "object") {
+    return [
+      {
+        content: (
+          <>
+            {options.label && <JsonPropertyLabel label={options.label} />}
+            <JsonPrimitiveToken value={value} />
+            {!options.isLast && <span className="jsonCodePunctuation">,</span>}
+          </>
+        ),
+        key: options.path,
+        level: options.level
+      }
+    ];
+  }
+
+  const isArray = Array.isArray(value);
+  const entries = isArray
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value);
+  const opening = isArray ? "[" : "{";
+  const closing = isArray ? "]" : "}";
+  const collapsed = options.collapsedPaths.has(options.path);
+
+  if (!entries.length) {
+    return [
+      {
+        content: (
+          <>
+            {options.label && <JsonPropertyLabel label={options.label} />}
+            <span className="jsonCodePunctuation">{opening}{closing}</span>
+            {!options.isLast && <span className="jsonCodePunctuation">,</span>}
+          </>
+        ),
+        key: options.path,
+        level: options.level
+      }
+    ];
+  }
+
+  const toggleButton = (
+    <button className="jsonFoldButton" onClick={() => options.onToggle(options.path)} type="button">
+      {collapsed ? ">" : "v"}
+    </button>
+  );
+
+  if (collapsed) {
+    return [
+      {
+        content: (
+          <>
+            {toggleButton}
+            {options.label && <JsonPropertyLabel label={options.label} />}
+            <span className="jsonCodePunctuation">{opening}</span>
+            <span className="jsonCodeMeta"> ... {entries.length} {isArray ? "items" : "keys"} </span>
+            <span className="jsonCodePunctuation">{closing}</span>
+            {!options.isLast && <span className="jsonCodePunctuation">,</span>}
+          </>
+        ),
+        key: options.path,
+        level: options.level
+      }
+    ];
+  }
+
+  const lines: JsonCodeLine[] = [
+    {
+      content: (
+        <>
+          {toggleButton}
+          {options.label && <JsonPropertyLabel label={options.label} />}
+          <span className="jsonCodePunctuation">{opening}</span>
+        </>
+      ),
+      key: `${options.path}:open`,
+      level: options.level
+    }
+  ];
+
+  entries.forEach(([key, item], index) => {
+    lines.push(
+      ...buildJsonCodeLines(item, {
+        collapsedPaths: options.collapsedPaths,
+        isLast: index === entries.length - 1,
+        label: isArray ? undefined : key,
+        level: options.level + 1,
+        onToggle: options.onToggle,
+        path: `${options.path}/${encodeURIComponent(key)}`
+      })
+    );
+  });
+
+  lines.push({
+    content: (
+      <>
+        <span className="jsonFoldSpacer" />
+        <span className="jsonCodePunctuation">{closing}</span>
+        {!options.isLast && <span className="jsonCodePunctuation">,</span>}
+      </>
+    ),
+    key: `${options.path}:close`,
+    level: options.level
+  });
+
+  return lines;
+}
+
+function JsonPropertyLabel({ label }: { label: string }) {
+  return (
+    <>
+      <span className="jsonCodeKey">{JSON.stringify(label)}</span>
+      <span className="jsonCodePunctuation">: </span>
+    </>
+  );
+}
+
+function JsonPrimitiveToken({ value }: { value: unknown }) {
+  if (value === null) return <span className="jsonCodeNull">null</span>;
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value)) {
+      return (
+        <span className="jsonCodeString">
+          &quot;
+          <a
+            className="jsonCodeLink"
+            href={value}
+            onClick={(event) => {
+              event.preventDefault();
+              void openExternalUrl(value);
+            }}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {value}
+          </a>
+          &quot;
+        </span>
+      );
+    }
+
+    return <span className="jsonCodeString">{JSON.stringify(value)}</span>;
+  }
+  if (typeof value === "number") return <span className="jsonCodeNumber">{String(value)}</span>;
+  if (typeof value === "boolean") return <span className="jsonCodeBoolean">{String(value)}</span>;
+  return <span>{JSON.stringify(value)}</span>;
 }

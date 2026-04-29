@@ -8,6 +8,7 @@ mod parser;
 use model::{FsNode, RequestCase, RequestSummary, ResponseData, WorkspaceData};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[tauri::command]
 fn parse_requests(
@@ -68,6 +69,32 @@ fn copy_request_as_curl(
         .ok_or_else(|| format!("Request {} was not found", request_index + 1))?;
 
     Ok(parser::request_to_curl(request))
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return Err("Only http:// and https:// URLs can be opened.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    let status = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", trimmed])
+        .status();
+
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(trimmed).status();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(trimmed).status();
+
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("Failed to open URL. Exit status: {status}")),
+        Err(err) => Err(err.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -533,6 +560,7 @@ pub fn run() {
             send_request,
             send_raw_request,
             copy_request_as_curl,
+            open_external_url,
             open_workspace_folder,
             read_workspace_folder,
             create_workspace_folder,

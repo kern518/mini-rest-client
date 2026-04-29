@@ -125,7 +125,7 @@ select {
 .workspaceSidebar {
   min-height: 0;
   display: grid;
-  grid-template-rows: 34px 30px 24px minmax(0, 1fr);
+  grid-template-rows: auto auto 24px minmax(0, 1fr);
   gap: 8px;
   padding: 10px;
   background: #181b21;
@@ -149,13 +149,15 @@ body.isResizing .paneResizer {
 }
 
 .sidebarHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
 .sidebarHeader > span {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
   color: #9aa4b5;
   font-size: 12px;
   letter-spacing: 0;
@@ -163,15 +165,18 @@ body.isResizing .paneResizer {
 }
 
 .sidebarActions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
 }
 
 .secondaryActions {
-  justify-content: flex-start;
+  align-self: start;
 }
 
 .sidebarActions button {
+  width: 100%;
   height: 28px;
   padding: 0 8px;
   font-size: 12px;
@@ -443,6 +448,28 @@ body.isResizing .paneResizer {
   outline: none;
 }
 
+.bodyTools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bodyTools button {
+  height: 28px;
+  border: 1px solid #3a404b;
+  background: #242832;
+  color: #dce2ec;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.bodyTools button:hover {
+  background: #303642;
+}
+
 .collapsedSection {
   border: 1px solid #2c3038;
   border-radius: 6px;
@@ -469,41 +496,85 @@ body.isResizing .paneResizer {
   color: #7fd3b2;
 }
 
-.collapsedSection .headersList {
+.collapsedSection .headersViewer,
+.collapsedSection > .emptyHeaders {
   padding: 0 10px 10px;
 }
 
-.headersList {
+.headersGrid {
   display: grid;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 
-.headerLine {
+.headersViewer {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
+}
+
+.headerStartLine {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
   align-items: start;
-  font-size: 13px;
+  padding: 8px;
+  border: 1px solid #252a33;
+  border-radius: 5px;
+  background: #101217;
 }
 
-.headerLine span {
+.headerStartLine span {
   color: #7fd3b2;
-  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.headerLine code {
-  color: #d7dce5;
+.headerStartLine code {
+  color: #dce2ec;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.headersToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #8f98a8;
+  font-size: 12px;
+}
+
+.headersToolbar button {
+  height: 26px;
+  padding: 0 8px;
+}
+
+.headersRaw {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #252a33;
+  border-radius: 5px;
+  background: #101217;
+  color: #d7dce5;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.emptyHeaders {
+  color: #8f98a8;
+  font-size: 12px;
 }
 
 .bodySection pre {
   margin: 0;
   padding: 12px;
   min-height: 180px;
-  max-height: 100%;
-  overflow: auto;
+  overflow: visible;
   border: 1px solid #2c3038;
   border-radius: 6px;
   background: #101217;
@@ -515,34 +586,123 @@ body.isResizing .paneResizer {
   overflow-wrap: anywhere;
 }
 
-.jsonNode {
+.jsonCode {
+  margin: 0;
+  min-height: 180px;
+  overflow: visible;
+  border: 1px solid #2c3038;
+  border-radius: 6px;
+  background: #101217;
+  padding: 8px 0;
   color: #dce2ec;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
-.jsonNode summary {
+.jsonCodeLine {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  min-height: 22px;
+  width: 100%;
+}
+
+.jsonCodeLine:hover {
+  background: #18202a;
+}
+
+.jsonLineNumber {
+  padding-right: 10px;
+  color: #8f98a8;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #252a33;
+}
+
+.jsonLineContent {
+  padding: 0 16px 0 10px;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.jsonFoldButton,
+.jsonFoldSpacer {
+  display: inline-flex;
+  width: 14px;
+  height: 18px;
+  margin-right: 4px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: text-bottom;
+}
+
+.jsonFoldButton {
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #8f98a8;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  padding: 0;
 }
 
-.jsonChildren {
-  padding-left: 18px;
-  border-left: 1px solid #2c3038;
+.jsonFoldButton:hover {
+  background: #26313b;
+  color: #dce2ec;
 }
 
-.jsonKey {
-  color: #7fd3b2;
+.jsonCodePunctuation {
+  color: #dce2ec;
+}
+
+.jsonCodeMeta {
+  color: #8f98a8;
+  font-style: italic;
+}
+
+.jsonCodeKey {
+  color: #8fd6ff;
+}
+
+.jsonCodeString {
+  color: #8ee6ad;
+}
+
+.jsonCodeLink {
+  color: #58a6ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.jsonCodeLink:hover {
+  color: #79c0ff;
+}
+
+.jsonCodeNumber {
+  color: #8fb8ff;
+}
+
+.jsonCodeBoolean {
+  color: #d7a8ff;
+}
+
+.jsonCodeNull {
+  color: #8f98a8;
+  font-style: italic;
 }
 
 .historyPanel {
   border-top: 1px solid #2c3038;
   background: #14171d;
   max-height: 240px;
-  overflow: auto;
+  overflow: hidden;
 }
 
-.historyPanel summary {
+.historyPanel > summary {
   min-height: 36px;
   display: flex;
   align-items: center;
@@ -554,6 +714,13 @@ body.isResizing .paneResizer {
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.historyBody {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 204px;
+  min-height: 0;
 }
 
 .historyActions {
@@ -576,6 +743,10 @@ body.isResizing .paneResizer {
 
 .historyList {
   display: grid;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
   gap: 6px;
   padding: 0 16px 14px;
 }
@@ -603,6 +774,7 @@ body.isResizing .paneResizer {
   gap: 4px;
   cursor: pointer;
   list-style: none;
+  text-transform: none;
 }
 
 .historyItem summary::-webkit-details-marker {

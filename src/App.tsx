@@ -116,6 +116,7 @@ export default function App() {
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [response, setResponse] = useState<ResponseData | null>(null);
+  const [responseRequest, setResponseRequest] = useState<RequestSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -296,27 +297,45 @@ export default function App() {
   const title = useMemo(() => activeFile?.name ?? "No file", [activeFile]);
 
   async function openFolder() {
-    const workspace = await invoke<WorkspaceData | null>("open_workspace_folder");
-    if (!workspace) return;
+    try {
+      const workspace = await invoke<WorkspaceData | null>("open_workspace_folder");
+      if (!workspace) return;
 
-    window.localStorage.setItem(rootPathStorageKey, workspace.root_path);
-    applyWorkspace(workspace, true);
-    setResponse(null);
-    setError(null);
+      window.localStorage.setItem(rootPathStorageKey, workspace.root_path);
+      applyWorkspace(workspace, true);
+      setResponse(null);
+      setResponseRequest(null);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function refreshWorkspace() {
+    if (!rootPath) return;
+
+    try {
+      const workspace = await invoke<WorkspaceData>("read_workspace_folder", { rootPath });
+      applyWorkspace(workspace);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
   async function addFolder() {
     if (!rootPath) return;
     const name = window.prompt("Folder name", "New Folder")?.trim();
     if (!name) return;
+    const parentPath = targetFolderPath();
 
     try {
       const workspace = await invoke<WorkspaceData>("create_workspace_folder", {
         rootPath,
-        parentPath: selectedFolderId ?? rootPath,
+        parentPath,
         name
       });
-      setExpandedFolders((folders) => new Set([...folders, selectedFolderId ?? rootPath]));
+      setExpandedFolders((folders) => new Set([...folders, parentPath]));
       applyWorkspace(workspace);
       setError(null);
     } catch (err) {
@@ -326,7 +345,7 @@ export default function App() {
 
   async function addFile() {
     if (!rootPath) return;
-    const parentPath = selectedFolderId ?? rootPath;
+    const parentPath = targetFolderPath();
     const name = window.prompt("File name", nextHttpFileName(workspaceNodes, parentPath))?.trim();
     if (!name) return;
 
@@ -345,10 +364,15 @@ export default function App() {
       applyWorkspace(workspace);
       setActiveFileId(createdPath);
       setResponse(null);
+      setResponseRequest(null);
       setError(null);
     } catch (err) {
       setError(String(err));
     }
+  }
+
+  function targetFolderPath() {
+    return selectedFolderId ?? (activeFile ? parentPathOf(activeFile.path) : rootPath);
   }
 
   async function renameFolder(folder: WorkspaceFolder) {
@@ -404,6 +428,7 @@ export default function App() {
       applyWorkspace(workspace);
       setActiveFileId(findFirstFileId(workspace.nodes) ?? "");
       setResponse(null);
+      setResponseRequest(null);
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -472,6 +497,7 @@ export default function App() {
       applyWorkspace(workspace);
       setActiveFileId(createdPath);
       setResponse(null);
+      setResponseRequest(null);
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -491,6 +517,7 @@ export default function App() {
       if (activeFileId === file.id) {
         setActiveFileId(findFirstFileId(workspace.nodes) ?? "");
         setResponse(null);
+        setResponseRequest(null);
       }
       setError(null);
     } catch (err) {
@@ -553,18 +580,27 @@ export default function App() {
   }
 
   async function sendRequest(index: number) {
-    if (!requests.length) return;
-    const request = requests.find((item) => item.index === index);
+    if (!source.trim()) {
+      setError("No request content to send.");
+      return;
+    }
+
+    let request: RequestSummary | undefined;
     setLoading(true);
     setError(null);
 
     try {
+      const nextRequests = await invoke<RequestSummary[]>("parse_requests", { source, envVariables });
+      setRequests(nextRequests);
+      request = nextRequests.find((item) => item.index === index);
+
       const data = await invoke<ResponseData>("send_request", {
         source,
         requestIndex: index,
         envVariables
       });
       setResponse(data);
+      setResponseRequest(request ? toRequestSnapshot(request) : null);
       addHistory({
         request,
         response: data,
@@ -572,6 +608,7 @@ export default function App() {
       });
     } catch (err) {
       setResponse(null);
+      setResponseRequest(request ? toRequestSnapshot(request) : null);
       const message = String(err);
       setError(message);
       addHistory({
@@ -585,7 +622,11 @@ export default function App() {
   }
 
   async function copyRequestAsCurl(index: number) {
-    if (!requests.length) return;
+    if (!source.trim()) {
+      setError("No request content to copy.");
+      return;
+    }
+
     setError(null);
 
     try {
@@ -602,6 +643,7 @@ export default function App() {
 
   function clearResponse() {
     setResponse(null);
+    setResponseRequest(null);
     setError(null);
   }
 
@@ -626,6 +668,7 @@ export default function App() {
         }
       });
       setResponse(data);
+      setResponseRequest(toRequestSnapshot(entry.request));
       addHistory({
         request: entry.request,
         response: data,
@@ -634,6 +677,7 @@ export default function App() {
     } catch (err) {
       const message = String(err);
       setResponse(null);
+      setResponseRequest(toRequestSnapshot(entry.request));
       setError(message);
       addHistory({
         request: entry.request,
@@ -658,11 +702,13 @@ export default function App() {
     setLoading(false);
     if (entry.response) {
       setResponse(entry.response);
+      setResponseRequest(entry.request ? toRequestSnapshot(entry.request) : null);
       setError(null);
       return;
     }
 
     setResponse(null);
+    setResponseRequest(entry.request ? toRequestSnapshot(entry.request) : null);
     setError(entry.error ?? "No response was recorded for this history item.");
   }
 
@@ -699,7 +745,11 @@ export default function App() {
   function applyWorkspace(workspace: WorkspaceData, forceFirstFile = false) {
     setRootPath(workspace.root_path);
     setWorkspaceNodes(workspace.nodes);
-    setSelectedFolderId(workspace.root_path);
+    setSelectedFolderId((current) => {
+      if (!current) return null;
+      if (current === workspace.root_path || findFolder(workspace.nodes, current)) return current;
+      return workspace.root_path;
+    });
     setExpandedFolders((folders) => new Set([...folders, workspace.root_path]));
 
     const existingActiveFile = findFile(workspace.nodes, activeFileId);
@@ -718,7 +768,6 @@ export default function App() {
           <span className="muted">{saveState === "saving" ? "Saving..." : saveState === "error" ? "Save failed" : "Saved"}</span>
         </div>
         <div className="toolbarActions">
-          <button onClick={openFolder}>Open Folder</button>
           <select
             className="envSelect"
             value={activeEnvironment}
@@ -745,7 +794,7 @@ export default function App() {
               </option>
             ))}
           </select>
-          <button className="primary" disabled={!requests.length || loading} onClick={() => sendRequest(selectedIndex)}>
+          <button className="primary" disabled={!source.trim() || loading} onClick={() => sendRequest(selectedIndex)}>
             Send
           </button>
         </div>
@@ -761,9 +810,13 @@ export default function App() {
           <div className="sidebarHeader">
             <span>Files</span>
             <div className="sidebarActions">
-              <button onClick={addFolder} disabled={!rootPath} title="New folder">Folder</button>
-              <button onClick={addFile} disabled={!rootPath} title="New HTTP file">File</button>
+              <button onClick={openFolder}>Open</button>
+              <button onClick={refreshWorkspace} disabled={!rootPath} title="Refresh workspace">Refresh</button>
             </div>
+          </div>
+          <div className="sidebarActions secondaryActions">
+            <button onClick={addFolder} disabled={!rootPath} title="New folder">Folder</button>
+            <button onClick={addFile} disabled={!rootPath} title="New HTTP file">File</button>
           </div>
           <div className="rootPath" title={rootPath}>{rootPath || "Open a folder to start"}</div>
           <div className="fileTree">
@@ -777,7 +830,9 @@ export default function App() {
                 expandedFolders={expandedFolders}
                 onSelectFile={(fileId) => {
                   setActiveFileId(fileId);
+                  setSelectedFolderId(null);
                   setResponse(null);
+                  setResponseRequest(null);
                   setError(null);
                 }}
                 onFileContextMenu={(file, event) => {
@@ -824,6 +879,7 @@ export default function App() {
 
         <ResponsePanel
           response={response}
+          request={responseRequest}
           error={error}
           loading={loading}
           history={history}
